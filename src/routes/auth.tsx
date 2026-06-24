@@ -42,9 +42,9 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const nav = useNavigate();
   return (
-    <form className="mt-6 space-y-3" onSubmit={(e) => {
+    <form className="mt-6 space-y-3" onSubmit={async (e) => {
       e.preventDefault();
-      try { const u = auth.login(email, password); toast.success("Welcome back!"); nav({ to: u.role === "admin" ? "/admin" : "/account" }); }
+      try { const u = await auth.login(email, password); toast.success("Welcome back!"); nav({ to: u.role === "admin" ? "/admin" : "/account" }); }
       catch (err: any) { toast.error(err.message); }
     }}>
       <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
@@ -57,9 +57,9 @@ function SignupForm() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const nav = useNavigate();
   return (
-    <form className="mt-6 space-y-3" onSubmit={(e) => {
+    <form className="mt-6 space-y-3" onSubmit={async (e) => {
       e.preventDefault();
-      try { const u = auth.signup(form.name, form.email, form.password); toast.success("Account created! Check email to verify (simulated)"); setTimeout(() => auth.verify(u.id), 1000); nav({ to: "/account" }); }
+      try { const u = await auth.signup(form.name, form.email, form.password); toast.success("Account created! Welcome!"); nav({ to: u.role === "admin" ? "/admin" : "/account" }); }
       catch (err: any) { toast.error(err.message); }
     }}>
       <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
@@ -72,9 +72,9 @@ function SignupForm() {
 function ForgotForm() {
   const [email, setEmail] = useState("");
   return (
-    <form className="mt-6 space-y-3" onSubmit={(e) => {
+    <form className="mt-6 space-y-3" onSubmit={async (e) => {
       e.preventDefault();
-      try { auth.forgot(email); toast.success("Reset link sent (simulated)"); }
+      try { await auth.forgot(email); toast.success("Reset link sent (simulated)"); }
       catch (err: any) { toast.error(err.message); }
     }}>
       <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
