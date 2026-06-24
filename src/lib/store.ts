@@ -7,7 +7,7 @@ export type OrderStatus = "Pending" | "In Progress" | "Ready For Delivery" | "De
 
 export interface User {
   id: number | string; name: string; email: string;
-  role: Role; status: UserStatus; verified: boolean;
+  role: Role; status: UserStatus;
   billing?: { country?: string; address?: string; city?: string; zip?: string };
   createdAt: number | string;
 }
@@ -419,7 +419,7 @@ export const admin = {
     emit();
   },
   async saveUser(u: any) {
-    const payload: any = { name: u.name, email: u.email, role: u.role, status: u.status, verified: u.verified, billing: u.billing };
+    const payload: any = { name: u.name, email: u.email, role: u.role, status: u.status, billing: u.billing };
     if (u.id) payload.id = u.id;
     if (u.password) payload.password = u.password;
     const res = await api.post<{ user: any }>("/api/admin/users", payload);

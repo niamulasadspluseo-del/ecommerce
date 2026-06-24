@@ -267,7 +267,6 @@ class AdminController extends Controller
             'password' => 'nullable|string|min:6',
             'role' => 'required|in:admin,customer',
             'status' => 'required|in:active,suspended,banned',
-            'verified' => 'boolean',
             'billing' => 'nullable|array',
         ]);
 
