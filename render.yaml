@@ -1,20 +1,16 @@
 services:
-  # ---- Backend: Laravel API ----
+  # ---- Backend: Laravel API (Docker) ----
   - type: web
     name: ecommerce-api
-    runtime: php
+    runtime: docker
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: composer install --no-dev --optimize-autoloader
-    startCommand: bash render-start.sh
     envVars:
       - key: APP_ENV
         value: production
       - key: APP_DEBUG
         value: false
-      - key: APP_KEY
-        generateValue: true
       - key: DB_CONNECTION
         value: sqlite
       - key: SESSION_DRIVER
@@ -23,13 +19,12 @@ services:
         value: array
       - key: QUEUE_CONNECTION
         value: sync
-      - key: FRONTEND_URL
-        fromService:
-          type: web
-          name: ecommerce-frontend
-          property: host
       - key: LOG_CHANNEL
         value: stderr
+      - key: FRONTEND_URL
+        value: https://ecommerce-frontend.onrender.com
+      - key: APP_KEY
+        generateValue: true
 
   # ---- Frontend: TanStack Start (Node SSR) ----
   - type: web
@@ -43,7 +38,4 @@ services:
       - key: NODE_VERSION
         value: 22
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: ecommerce-api
-          property: host
+        value: https://ecommerce-api.onrender.com
