@@ -1,7 +1,7 @@
 import http from "http";
 import { spawn, execSync } from "child_process";
 import { Writable } from "stream";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { readFile } from "fs/promises";
 import path from "path";
 
@@ -28,6 +28,22 @@ const MIME = {
 
 // ---------- Laravel setup ----------
 console.log("[start] Initializing Laravel...");
+
+// Override .env with Render env vars so Laravel picks them up
+const ENV_OVERRIDES = ["DB_CONNECTION", "DB_URL", "APP_KEY", "APP_ENV", "APP_DEBUG", "SESSION_DRIVER", "CACHE_STORE", "QUEUE_CONNECTION", "FRONTEND_URL"];
+let envContent = readFileSync("backend/.env", "utf-8");
+for (const key of ENV_OVERRIDES) {
+  if (process.env[key]) {
+    const re = new RegExp(`^${key}=.*`, "m");
+    if (re.test(envContent)) {
+      envContent = envContent.replace(re, `${key}=${process.env[key]}`);
+    } else {
+      envContent += `\n${key}=${process.env[key]}`;
+    }
+  }
+}
+writeFileSync("backend/.env", envContent);
+
 if (!process.env.DB_CONNECTION || process.env.DB_CONNECTION === "sqlite") {
   if (!existsSync("backend/database/database.sqlite")) {
     execSync("touch backend/database/database.sqlite", { stdio: "inherit" });
