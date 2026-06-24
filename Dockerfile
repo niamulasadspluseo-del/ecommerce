@@ -15,6 +15,11 @@ RUN php -m | grep -q pdo_sqlite \
         && docker-php-ext-install pdo_sqlite \
         && rm -rf /var/lib/apt/lists/*)
 
+# Install zip extension + unzip for Composer
+RUN apt-get update && apt-get install -y unzip libzip-dev \
+    && docker-php-ext-install zip \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
 WORKDIR /app
