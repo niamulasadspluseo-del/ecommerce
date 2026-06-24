@@ -2,9 +2,29 @@ import http from "http";
 import { spawn, execSync } from "child_process";
 import { Writable } from "stream";
 import { existsSync } from "fs";
+import { readFile } from "fs/promises";
+import path from "path";
 
 const PORT = process.env.PORT || 8080;
 const PHP_PORT = 8081;
+const CLIENT_DIR = "dist/client";
+
+const MIME = {
+  ".css": "text/css",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".html": "text/html",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".json": "application/json",
+  ".txt": "text/plain",
+};
 
 // ---------- Laravel setup ----------
 console.log("[start] Initializing Laravel...");
@@ -35,8 +55,8 @@ const server = http.createServer(async (req, res) => {
   const body = Buffer.concat(chunks);
   const url = req.url;
 
+  // API → Laravel PHP
   if (url.startsWith("/api/") || url.startsWith("/sanctum/")) {
-    // Proxy to Laravel PHP
     const opts = {
       hostname: "127.0.0.1",
       port: PHP_PORT,
@@ -53,25 +73,43 @@ const server = http.createServer(async (req, res) => {
       res.end("Backend unavailable");
     });
     proxyReq.end(body);
-  } else {
-    // SSR via TanStack Start / Nitro
+    return;
+  }
+
+  // Static assets → serve from dist/client directly
+  const assetPath = url.split("?")[0];
+  const filePath = path.join(CLIENT_DIR, assetPath.replace(/^\//, ""));
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext && MIME[ext] && existsSync(filePath)) {
     try {
-      const requestUrl = new URL(url, `http://${req.headers.host || "localhost"}`);
-      const headers = new Headers(req.headers);
-      const init = { method: req.method, headers };
-      if (body.length > 0) init.body = body;
-      const response = await ssrHandler.fetch(new Request(requestUrl, init), {}, {});
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) {
-        await response.body.pipeTo(Writable.toWeb(res));
-      } else {
-        res.end();
-      }
-    } catch (err) {
-      console.error("[start] SSR error:", err);
-      res.writeHead(500, { "content-type": "text/plain" });
-      res.end("Internal server error");
+      const content = await readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      res.writeHead(200, { "content-type": MIME[ext] || "application/octet-stream" });
+      res.end(content);
+    } catch {
+      res.writeHead(404);
+      res.end("Not found");
     }
+    return;
+  }
+
+  // Everything else → SSR handler
+  try {
+    const requestUrl = new URL(url, `http://${req.headers.host || "localhost"}`);
+    const headers = new Headers(req.headers);
+    const init = { method: req.method, headers };
+    if (body.length > 0) init.body = body;
+    const response = await ssrHandler.fetch(new Request(requestUrl, init), {}, {});
+    res.writeHead(response.status, Object.fromEntries(response.headers));
+    if (response.body) {
+      await response.body.pipeTo(Writable.toWeb(res));
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    console.error("[start] SSR error:", err);
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end("Internal server error");
   }
 });
 
