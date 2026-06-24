@@ -1,46 +1,47 @@
-// Local-storage backed store. Swap with API later.
 import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
+import { api, setToken, getToken } from "./api";
 
 export type Role = "admin" | "customer";
 export type UserStatus = "active" | "suspended" | "banned";
 export type OrderStatus = "Pending" | "In Progress" | "Ready For Delivery" | "Delivered" | "Refunded";
 
 export interface User {
-  id: string; name: string; email: string; password: string;
+  id: number | string; name: string; email: string;
   role: Role; status: UserStatus; verified: boolean;
   billing?: { country?: string; address?: string; city?: string; zip?: string };
-  createdAt: number;
+  createdAt: number | string;
 }
 export interface Variation { id: string; name: string; price: number }
 export interface Product {
-  id: string; slug: string; title: string; description: string;
+  id: number | string; slug: string; title: string; description: string;
   price: number; salePrice?: number;
-  category: string; tags: string[];
+  category: string | { id: number; name: string; slug: string; icon?: string };
+  tags: string[];
   image: string; gallery?: string[];
-  fileUrl: string; // download link
+  fileUrl: string;
   variations: Variation[];
   featured?: boolean; newRelease?: boolean; bestSeller?: boolean;
-  createdAt: number;
+  createdAt: number | string;
 }
-export interface Category { id: string; name: string; slug: string; icon?: string }
-export interface CartItem { productId: string; variationId?: string; qty: number }
-export interface Cart { items: CartItem[]; couponCode?: string }
-export interface OrderItem { productId: string; title: string; price: number; qty: number; variationName?: string; fileUrl: string }
+export interface Category { id: number | string; name: string; slug: string; icon?: string }
+export interface CartItemData { productId: string | number; variationId?: string | null; qty: number }
+export interface Cart { items: CartItemData[]; couponCode?: string | null }
+export interface OrderItemData { productId: string | number; title: string; price: number; qty: number; variationName?: string | null; fileUrl: string }
 export interface Order {
-  id: string; userId: string; userName: string; userEmail: string;
-  items: OrderItem[]; subtotal: number; discount: number; total: number;
+  id: number | string; userId: number | string; userName: string; userEmail: string;
+  items: OrderItemData[]; subtotal: number; discount: number; total: number;
   status: OrderStatus;
   payment: { method: "stripe" | "crypto"; txid?: string; network?: string; cardLast4?: string };
-  createdAt: number;
+  createdAt: number | string;
 }
 export interface Coupon {
   code: string; type: "percent" | "fixed"; value: number;
-  expiresAt?: number; usageLimit?: number; usedCount: number;
+  expiresAt?: number | string; usageLimit?: number; usedCount: number;
 }
-export interface Review { id: string; productId: string; userId: string; userName: string; rating: number; text: string; approved: boolean; createdAt: number }
-export interface BlogPost { id: string; slug: string; title: string; excerpt: string; content: string; cover: string; author: string; publishedAt: number }
-export interface Testimonial { id: string; name: string; role: string; text: string; avatar?: string; rating: number }
-export interface FAQ { id: string; question: string; answer: string }
+export interface Review { id: number | string; productId: number | string; userId: number | string; userName: string; rating: number; text: string; approved: boolean; createdAt: number | string }
+export interface BlogPost { id: number | string; slug: string; title: string; excerpt: string; content: string; cover: string; author: string; publishedAt: number | string }
+export interface Testimonial { id: number | string; name: string; role: string; text: string; avatar?: string; rating: number }
+export interface FAQ { id: number | string; question: string; answer: string }
 export interface Pages { terms: string; privacy: string; refund: string; about: string; contact: string }
 export interface CryptoNetwork { id: string; name: string; chain: string; address: string }
 export interface Settings {
@@ -52,11 +53,10 @@ export interface Settings {
     crypto: { enabled: boolean; networks: CryptoNetwork[] };
   };
 }
-
-export interface ContactMessage { id: string; name: string; email: string; message: string; read: boolean; createdAt: number }
+export interface ContactMessage { id: number | string; name: string; email: string; message: string; read: boolean; createdAt: number | string }
 
 interface DB {
-  users: User[]; sessionUserId: string | null;
+  users: User[]; sessionUserId: number | string | null;
   products: Product[]; categories: Category[]; tags: string[];
   orders: Order[]; coupons: Coupon[]; reviews: Review[];
   blog: BlogPost[]; testimonials: Testimonial[]; faqs: FAQ[];
@@ -65,105 +65,37 @@ interface DB {
 }
 
 const KEY = "ds.v1";
-const uid = () => Math.random().toString(36).slice(2, 10);
+const isBrowser = typeof window !== "undefined";
 
 const seed = (): DB => ({
-  users: [
-    { id: "u-admin", name: "Admin", email: "admin@demo.com", password: "admin123", role: "admin", status: "active", verified: true, createdAt: Date.now() - 86400000 * 30 },
-    { id: "u-jane", name: "Jane Customer", email: "jane@demo.com", password: "jane1234", role: "customer", status: "active", verified: true, createdAt: Date.now() - 86400000 * 10 },
-  ],
-  sessionUserId: null,
-  categories: [
-    { id: "c1", name: "Templates", slug: "templates", icon: "📄" },
-    { id: "c2", name: "Ebooks", slug: "ebooks", icon: "📚" },
-    { id: "c3", name: "Software", slug: "software", icon: "💻" },
-    { id: "c4", name: "Graphics", slug: "graphics", icon: "🎨" },
-    { id: "c5", name: "Courses", slug: "courses", icon: "🎓" },
-  ],
-  tags: ["new", "trending", "premium", "popular", "starter"],
-  products: [
-    { id: "p1", slug: "notion-productivity-os", title: "Notion Productivity OS", description: "All-in-one productivity workspace template for Notion. Includes tasks, projects, habits, journal, and weekly review dashboard.", price: 49, salePrice: 29, category: "templates", tags: ["new", "trending"], image: "https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800", fileUrl: "https://example.com/files/notion-os.zip", variations: [{ id: "v1", name: "Personal", price: 29 }, { id: "v2", name: "Team", price: 79 }], featured: true, newRelease: true, bestSeller: true, createdAt: Date.now() - 86400000 * 5 },
-    { id: "p2", slug: "ai-prompt-pack", title: "Ultimate AI Prompt Pack", description: "1000+ curated prompts for marketing, sales, coding and creative writing across ChatGPT, Claude and Gemini.", price: 19, category: "ebooks", tags: ["popular"], image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800", fileUrl: "https://example.com/files/prompts.pdf", variations: [], featured: true, bestSeller: true, createdAt: Date.now() - 86400000 * 8 },
-    { id: "p3", slug: "indie-saas-starter", title: "Indie SaaS Starter Kit", description: "Production-ready Next.js + Stripe + Auth boilerplate to ship your SaaS in a weekend.", price: 99, salePrice: 69, category: "software", tags: ["premium"], image: "https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=800", fileUrl: "https://example.com/files/saas-kit.zip", variations: [], featured: true, newRelease: true, createdAt: Date.now() - 86400000 * 2 },
-    { id: "p4", slug: "icon-pack-pro", title: "Icon Pack Pro — 2000 Icons", description: "2000+ pixel-perfect SVG icons in 6 styles. Figma + sprite + React components.", price: 29, category: "graphics", tags: ["trending"], image: "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=800", fileUrl: "https://example.com/files/icons.zip", variations: [], bestSeller: true, createdAt: Date.now() - 86400000 * 20 },
-    { id: "p5", slug: "youtube-growth-course", title: "YouTube Growth Course", description: "12-hour course on growing a YouTube channel from 0 to 100k subs. Lifetime updates.", price: 149, salePrice: 99, category: "courses", tags: ["premium"], image: "https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800", fileUrl: "https://example.com/files/yt-course.zip", variations: [], featured: true, createdAt: Date.now() - 86400000 * 15 },
-    { id: "p6", slug: "minimal-resume-templates", title: "Minimal Resume Templates", description: "12 clean resume templates in Word, Pages, and Figma formats.", price: 15, category: "templates", tags: ["starter"], image: "https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=800", fileUrl: "https://example.com/files/resume.zip", variations: [], newRelease: true, createdAt: Date.now() - 86400000 * 1 },
-  ],
-  orders: [],
-  coupons: [
-    { code: "WELCOME10", type: "percent", value: 10, usageLimit: 100, usedCount: 3 },
-    { code: "SAVE5", type: "fixed", value: 5, usedCount: 0 },
-  ],
-  reviews: [
-    { id: "r1", productId: "p1", userId: "u-jane", userName: "Jane C.", rating: 5, text: "Game changer for my workflow!", approved: true, createdAt: Date.now() - 86400000 * 2 },
-    { id: "r2", productId: "p2", userId: "u-jane", userName: "Jane C.", rating: 4, text: "Massive value for the price.", approved: true, createdAt: Date.now() - 86400000 * 3 },
-  ],
-  blog: [
-    { id: "b1", slug: "selling-digital-products-2026", title: "Selling Digital Products in 2026: What's Working", excerpt: "The playbook for creators shipping templates, ebooks and SaaS in the AI era.", content: "Long-form content here. Replace from the admin panel.", cover: "https://images.unsplash.com/photo-1432888622747-4eb9a8efeb07?w=1200", author: "Admin", publishedAt: Date.now() - 86400000 * 3 },
-    { id: "b2", slug: "stripe-vs-crypto-payments", title: "Stripe vs Crypto: Which Should You Offer?", excerpt: "A practical comparison of cards and on-chain payments for digital sellers.", content: "Long-form content here.", cover: "https://images.unsplash.com/photo-1620266757065-5814239881fd?w=1200", author: "Admin", publishedAt: Date.now() - 86400000 * 10 },
-  ],
-  testimonials: [
-    { id: "t1", name: "Sarah K.", role: "Designer", text: "Best store I've bought templates from. Instant delivery and great support.", rating: 5 },
-    { id: "t2", name: "Marcus D.", role: "Indie Hacker", text: "The SaaS Starter saved me weeks. Solid quality.", rating: 5 },
-    { id: "t3", name: "Priya R.", role: "Marketer", text: "The prompt pack pays for itself in one day.", rating: 5 },
-  ],
-  faqs: [
-    { id: "f1", question: "How do I receive my purchase?", answer: "Instantly — your download link appears in your dashboard and is emailed to you after checkout." },
-    { id: "f2", question: "Do you offer refunds?", answer: "Yes, within 7 days if the product doesn't match its description. See our Refund Policy." },
-    { id: "f3", question: "Can I pay with crypto?", answer: "Yes, we accept multiple networks. Choose Crypto at checkout and submit your TXID." },
-    { id: "f4", question: "Is there a license for commercial use?", answer: "Most products include a commercial license. Check the product page for specifics." },
-  ],
-  pages: {
-    terms: "# Terms & Conditions\n\nBy using this site you agree to our terms. Replace this content from the admin panel.",
-    privacy: "# Privacy Policy\n\nWe respect your privacy. Replace this content from the admin panel.",
-    refund: "# Refund & Return Policy\n\nDigital products are refundable within 7 days. Replace this content from the admin panel.",
-    about: "# About Us\n\nWe're a small team building tools and templates for creators.",
-    contact: "# Contact Us\n\nEmail us at support@demo.com — we reply within 24 hours.",
-  },
+  users: [], sessionUserId: null,
+  categories: [], tags: [],
+  products: [], orders: [], coupons: [],
+  reviews: [], blog: [], testimonials: [], faqs: [],
+  pages: { terms: "", privacy: "", refund: "", about: "", contact: "" },
   settings: {
-    brand: { name: "PixelMart", metaTitle: "PixelMart — Premium Digital Products", metaDesc: "Templates, ebooks, software and courses for creators and founders." },
-    hero: { eyebrow: "Premium Digital Goods", title: "Build faster with battle-tested digital products", subtitle: "Templates, ebooks, software and courses crafted by working pros. Instant download, lifetime updates.", ctaText: "Shop products" },
+    brand: { name: "PixelMart", metaTitle: "PixelMart — Premium Digital Products", metaDesc: "" },
+    hero: { eyebrow: "", title: "", subtitle: "", ctaText: "Shop products" },
     integrations: {},
-    payments: {
-      stripe: { enabled: true, publishableKey: "", secretKey: "" },
-      crypto: { enabled: true, networks: [
-        { id: "n1", name: "USDT", chain: "TRC20", address: "TXxxxx...demoaddress" },
-        { id: "n2", name: "BTC", chain: "Bitcoin", address: "bc1qxxxx...demoaddress" },
-        { id: "n3", name: "ETH", chain: "ERC20", address: "0xabcd...demoaddress" },
-      ] },
-    },
+    payments: { stripe: { enabled: true, publishableKey: "", secretKey: "" }, crypto: { enabled: false, networks: [] } },
   },
   cart: { items: [] },
   contactMessages: [],
 });
 
 let db: DB = seed();
-const isBrowser = typeof window !== "undefined";
 
-// Eagerly hydrate from localStorage at module load so refresh on protected
-// pages (e.g. /admin) doesn't redirect before session is restored.
+// hydrate from localStorage fallback immediately (fast boot)
 if (isBrowser) {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) { db = { ...seed(), ...JSON.parse(raw) }; if (!db.contactMessages) db.contactMessages = []; }
+    if (raw) db = { ...seed(), ...JSON.parse(raw) };
   } catch {}
 }
-
-function save() { if (isBrowser) localStorage.setItem(KEY, JSON.stringify(db)); }
 
 let hydrated = false;
-export function hydrate() {
-  if (!isBrowser || hydrated) return;
-  hydrated = true;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) { localStorage.setItem(KEY, JSON.stringify(db)); }
-    else { db = { ...seed(), ...JSON.parse(raw) }; if (!db.contactMessages) db.contactMessages = []; }
-  } catch {}
-  listeners.forEach((l) => l());
-}
-
 const listeners = new Set<() => void>();
+
 function emit() {
   db = {
     ...db,
@@ -182,16 +114,64 @@ function emit() {
     cart: { ...db.cart, items: [...db.cart.items] },
     contactMessages: [...(db.contactMessages ?? [])],
   };
-  save();
+  if (isBrowser) localStorage.setItem(KEY, JSON.stringify(db));
   listeners.forEach((l) => l());
 }
+
+// ------- hydrate from API -------
+async function fetchPublicData() {
+  try {
+    const res = await api.get<any>("/api/data");
+    const d = res;
+    const cats = (d.categories || []).map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon }));
+    const products = (d.products || []).map((p: any) => ({
+      id: p.id, slug: p.slug, title: p.title, description: p.description,
+      price: parseFloat(p.price), salePrice: p.sale_price ? parseFloat(p.sale_price) : undefined,
+      category: p.category?.slug || p.category_id,
+      tags: p.tags || [], image: p.image, gallery: p.gallery, fileUrl: p.file_url,
+      variations: p.variations || [], featured: p.featured, newRelease: p.new_release, bestSeller: p.best_seller,
+      createdAt: p.created_at,
+    }));
+    const blog = (d.blog || []).map((b: any) => ({
+      id: b.id, slug: b.slug, title: b.title, excerpt: b.excerpt, content: b.content,
+      cover: b.cover, author: b.author, publishedAt: b.published_at,
+    }));
+    return {
+      products, categories: cats, tags: [...new Set(products.flatMap((p: any) => p.tags || []))],
+      blog, testimonials: d.testimonials || [], faqs: d.faqs || [],
+      pages: d.pages || seed().pages, settings: d.settings || seed().settings,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function hydrateFromApi() {
+  const data = await fetchPublicData();
+  if (!data) return; // keep localStorage fallback
+  db = { ...db, ...data };
+  emit();
+}
+
+export function hydrate() {
+  if (!isBrowser || hydrated) return;
+  hydrated = true;
+  if (isBrowser) {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) db = { ...seed(), ...JSON.parse(raw) };
+    } catch {}
+  }
+  hydrateFromApi();
+}
+
 export function subscribe(fn: () => void) {
-  // Hydrate on first subscribe (client-only) so SSR markup matches initial client render.
   if (isBrowser && !hydrated) hydrate();
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
 export function snapshot(): DB { return db; }
+
 function shallowEq(a: any, b: any): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
@@ -211,70 +191,93 @@ export function useStore<T>(selector: (s: DB) => T): T {
 
 // ---------- Auth ----------
 export const auth = {
-  signup(name: string, email: string, password: string) {
-    if (db.users.find((u) => u.email.toLowerCase() === email.toLowerCase())) throw new Error("Email already registered");
-    const u: User = { id: "u-" + uid(), name, email, password, role: "customer", status: "active", verified: false, createdAt: Date.now() };
-    db.users.push(u); db.sessionUserId = u.id; emit(); return u;
+  async signup(name: string, email: string, password: string) {
+    const res = await api.post<{ user: User; token: string }>("/api/auth/signup", { name, email, password });
+    setToken(res.token);
+    const u = res.user;
+    db.users = db.users.filter((x) => x.email !== u.email); // remove seed duplicate
+    db.users.push(u);
+    db.sessionUserId = u.id;
+    emit();
+    return u;
   },
-  login(email: string, password: string) {
-    const u = db.users.find((x) => x.email.toLowerCase() === email.toLowerCase() && x.password === password);
-    if (!u) throw new Error("Invalid credentials");
-    if (u.status !== "active") throw new Error("Account " + u.status);
-    db.sessionUserId = u.id; emit(); return u;
+  async login(email: string, password: string) {
+    const res = await api.post<{ user: User; token: string }>("/api/auth/login", { email, password });
+    setToken(res.token);
+    const u = res.user;
+    if (!db.users.find((x) => x.id === u.id)) db.users.push(u);
+    db.sessionUserId = u.id;
+    emit();
+    return u;
   },
-  logout() { db.sessionUserId = null; emit(); },
-  forgot(email: string) {
-    const u = db.users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-    if (!u) throw new Error("No account with that email");
+  async logout() {
+    try { await api.post("/api/auth/logout"); } catch {}
+    setToken(null);
+    db.sessionUserId = null;
+    emit();
+  },
+  async forgot(email: string) {
+    await api.post("/api/auth/forgot", { email });
     return true;
   },
-  verify(userId: string) { const u = db.users.find((x) => x.id === userId); if (u) { u.verified = true; emit(); } },
-  current(): User | null { return db.users.find((u) => u.id === db.sessionUserId) ?? null; },
-  updateProfile(patch: Partial<User>) {
-    const u = auth.current(); if (!u) return;
-    Object.assign(u, patch); emit();
+  current(): User | null {
+    return db.users.find((u) => u.id === db.sessionUserId) ?? null;
+  },
+  async updateProfile(patch: Partial<User>) {
+    const res = await api.put<{ user: User }>("/api/auth/profile", patch);
+    const u = res.user;
+    const idx = db.users.findIndex((x) => x.id === u.id);
+    if (idx >= 0) db.users[idx] = u;
+    emit();
   },
 };
 
 // ---------- Cart ----------
 export const cart = {
-  add(productId: string, variationId?: string, qty = 1) {
+  async add(productId: string | number, variationId?: string, qty = 1) {
+    try { await api.post("/api/cart/add", { product_id: productId, variation_id: variationId || null, qty }); } catch {}
     const items = db.cart.items.slice();
     const idx = items.findIndex((i) => i.productId === productId && i.variationId === variationId);
     if (idx >= 0) items[idx] = { ...items[idx], qty: items[idx].qty + qty };
-    else items.push({ productId, variationId, qty });
+    else items.push({ productId, variationId: variationId || null, qty });
     db.cart = { ...db.cart, items };
     emit();
     cartDrawer.open();
   },
-  remove(productId: string, variationId?: string) {
-    const items = db.cart.items.filter((i) => !(i.productId === productId && i.variationId === variationId));
-    db.cart = { ...db.cart, items };
+  async remove(productId: string | number, variationId?: string) {
+    try { await api.post("/api/cart/remove", { product_id: productId, variation_id: variationId || null }); } catch {}
+    db.cart = { ...db.cart, items: db.cart.items.filter((i) => !(i.productId === productId && i.variationId === (variationId || null))) };
     emit();
   },
-  setQty(productId: string, variationId: string | undefined, qty: number) {
-    const items = db.cart.items.map((i) =>
-      i.productId === productId && i.variationId === variationId ? { ...i, qty: Math.max(1, qty) } : i,
-    );
-    db.cart = { ...db.cart, items };
+  async setQty(productId: string | number, variationId: string | undefined, qty: number) {
+    try { await api.post("/api/cart/set-qty", { product_id: productId, variation_id: variationId || null, qty }); } catch {}
+    db.cart = { ...db.cart, items: db.cart.items.map((i) => i.productId === productId && i.variationId === (variationId || null) ? { ...i, qty: Math.max(1, qty) } : i) };
     emit();
   },
-  clear() { db.cart = { items: [] }; emit(); },
-  applyCoupon(code: string) {
-    const c = db.coupons.find((x) => x.code.toLowerCase() === code.toLowerCase());
-    if (!c) throw new Error("Invalid coupon");
-    if (c.expiresAt && c.expiresAt < Date.now()) throw new Error("Coupon expired");
-    if (c.usageLimit && c.usedCount >= c.usageLimit) throw new Error("Coupon limit reached");
-    db.cart = { ...db.cart, couponCode: c.code }; emit();
+  async clear() {
+    try { await api.post("/api/cart/clear"); } catch {}
+    db.cart = { items: [] };
+    emit();
   },
-  removeCoupon() { db.cart = { ...db.cart, couponCode: undefined }; emit(); },
+  async applyCoupon(code: string) {
+    await api.post("/api/cart/coupon", { code });
+    db.cart = { ...db.cart, couponCode: code };
+    emit();
+  },
+  async removeCoupon() {
+    try { await api.delete("/api/cart/coupon"); } catch {}
+    db.cart = { ...db.cart, couponCode: undefined };
+    emit();
+  },
 };
 
 export function totals(c: Cart = db.cart) {
   const items = c.items.map((it) => {
-    const p = db.products.find((x) => x.id === it.productId)!;
-    const v = it.variationId ? p.variations.find((x) => x.id === it.variationId) : undefined;
-    const price = v?.price ?? p.salePrice ?? p.price;
+    const p = db.products.find((x) => x.id === it.productId);
+    if (!p) return { product: null, variation: null, qty: it.qty, line: 0, unit: 0 };
+    const variations = (p as any).variations || [];
+    const v = it.variationId ? variations.find((x: any) => x.id === it.variationId) : undefined;
+    const price = v?.price ?? (p as any).salePrice ?? (p as any).price ?? 0;
     return { product: p, variation: v, qty: it.qty, line: price * it.qty, unit: price };
   });
   const subtotal = items.reduce((s, i) => s + i.line, 0);
@@ -286,88 +289,190 @@ export function totals(c: Cart = db.cart) {
 
 // ---------- Orders ----------
 export const orders = {
-  create(payment: Order["payment"]) {
+  async create(payment: Order["payment"]) {
     const user = auth.current(); if (!user) throw new Error("Login required");
     const t = totals(); if (!t.items.length) throw new Error("Cart is empty");
-    const o: Order = {
-      id: "O-" + Date.now().toString(36).toUpperCase(),
-      userId: user.id, userName: user.name, userEmail: user.email,
-      items: t.items.map((i) => ({ productId: i.product.id, title: i.product.title, price: i.unit, qty: i.qty, variationName: i.variation?.name, fileUrl: i.product.fileUrl })),
-      subtotal: t.subtotal, discount: t.discount, total: t.total,
-      status: "Pending", payment, createdAt: Date.now(),
-    };
-    if (t.coupon) t.coupon.usedCount += 1;
+    const res = await api.post<{ order: Order }>("/api/orders", { payment });
+    const o = res.order;
     db.orders.unshift(o);
+    if (t.coupon) t.coupon.usedCount += 1;
     db.cart = { items: [] };
     emit();
     return o;
   },
-  setStatus(id: string, status: OrderStatus) {
+  async setStatus(id: number | string, status: OrderStatus) {
+    try { await api.put(`/api/admin/orders/${id}/status`, { status }); } catch {}
     db.orders = db.orders.map((o) => (o.id === id ? { ...o, status } : o));
     emit();
   },
-  forUser(userId: string) { return db.orders.filter((o) => o.userId === userId); },
-  delivered(userId: string) {
-    return db.orders.filter((o) => o.userId === userId && o.status === "Delivered");
-  },
+  forUser(userId: number | string) { return db.orders.filter((o) => o.userId === userId); },
+  delivered(userId: number | string) { return db.orders.filter((o) => o.userId === userId && o.status === "Delivered"); },
 };
 
-// ---------- Admin CRUD helpers ----------
-function upsert<T extends { id: string }>(arr: T[], item: T) {
+// ---------- Admin CRUD ----------
+function upsert<T extends { id: any }>(arr: T[], item: T) {
   const i = arr.findIndex((x) => x.id === item.id);
   if (i >= 0) arr[i] = item; else arr.push(item);
 }
 export const admin = {
-  // products
-  saveProduct(p: Product) { if (!p.id) p.id = "p-" + uid(); if (!p.slug) p.slug = p.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""); upsert(db.products, p); emit(); },
-  deleteProduct(id: string) { db.products = db.products.filter((p) => p.id !== id); emit(); },
-  // categories
-  saveCategory(c: Category) { if (!c.id) c.id = "c-" + uid(); if (!c.slug) c.slug = c.name.toLowerCase().replace(/\s+/g, "-"); upsert(db.categories, c); emit(); },
-  deleteCategory(id: string) { db.categories = db.categories.filter((c) => c.id !== id); emit(); },
-  saveTags(tags: string[]) { db.tags = tags; emit(); },
-  // coupons
-  saveCoupon(c: Coupon) { const i = db.coupons.findIndex((x) => x.code === c.code); if (i >= 0) db.coupons[i] = c; else db.coupons.push(c); emit(); },
-  deleteCoupon(code: string) { db.coupons = db.coupons.filter((c) => c.code !== code); emit(); },
-  // reviews
-  saveReview(r: Review) { upsert(db.reviews, r); emit(); },
-  deleteReview(id: string) { db.reviews = db.reviews.filter((r) => r.id !== id); emit(); },
-  // blog
-  saveBlog(p: BlogPost) { if (!p.id) p.id = "b-" + uid(); if (!p.slug) p.slug = p.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""); upsert(db.blog, p); emit(); },
-  deleteBlog(id: string) { db.blog = db.blog.filter((b) => b.id !== id); emit(); },
-  // testimonials
-  saveTestimonial(t: Testimonial) { if (!t.id) t.id = "t-" + uid(); upsert(db.testimonials, t); emit(); },
-  deleteTestimonial(id: string) { db.testimonials = db.testimonials.filter((x) => x.id !== id); emit(); },
-  // faqs
-  saveFaq(f: FAQ) { if (!f.id) f.id = "f-" + uid(); upsert(db.faqs, f); emit(); },
-  deleteFaq(id: string) { db.faqs = db.faqs.filter((x) => x.id !== id); emit(); },
-  // pages
-  savePages(p: Pages) { db.pages = p; emit(); },
-  // users
-  saveUser(u: User) { upsert(db.users, u); emit(); },
-  deleteUser(id: string) { db.users = db.users.filter((u) => u.id !== id); emit(); },
-  setUserStatus(id: string, s: UserStatus) { const u = db.users.find((x) => x.id === id); if (u) { u.status = s; emit(); } },
-  // settings
-  saveSettings(s: Settings) { db.settings = s; emit(); },
-  // contact messages
-  markMessageRead(id: string, read = true) { const m = db.contactMessages.find((x) => x.id === id); if (m) { m.read = read; emit(); } },
-  deleteMessage(id: string) { db.contactMessages = db.contactMessages.filter((m) => m.id !== id); emit(); },
+  async saveProduct(p: any) {
+    const payload: any = {
+      title: p.title, slug: p.slug, description: p.description,
+      price: p.price, sale_price: p.salePrice, category_id: p.category_id || p.category,
+      tags: p.tags, image: p.image, gallery: p.gallery, file_url: p.fileUrl,
+      variations: p.variations, featured: p.featured, new_release: p.newRelease, best_seller: p.bestSeller,
+    };
+    if (p.id) payload.id = p.id;
+    const res = await api.post<{ product: any }>("/api/admin/products", payload);
+    if (!p.id) p.id = res.product.id;
+    upsert(db.products as any, p);
+    emit();
+  },
+  async deleteProduct(id: number | string) {
+    try { await api.delete(`/api/admin/products/${id}`); } catch {}
+    db.products = db.products.filter((p) => p.id !== id);
+    emit();
+  },
+  async saveCategory(c: any) {
+    const payload: any = { name: c.name, slug: c.slug, icon: c.icon };
+    if (c.id) payload.id = c.id;
+    const res = await api.post<{ category: any }>("/api/admin/categories", payload);
+    if (!c.id) c.id = res.category.id;
+    upsert(db.categories as any, c);
+    emit();
+  },
+  async deleteCategory(id: number | string) {
+    try { await api.delete(`/api/admin/categories/${id}`); } catch {}
+    db.categories = db.categories.filter((c) => c.id !== id);
+    emit();
+  },
+  async saveTags(tags: string[]) {
+    try { await api.post("/api/admin/tags", { tags }); } catch {}
+    db.tags = tags;
+    emit();
+  },
+  async saveCoupon(c: Coupon) {
+    await api.post("/api/admin/coupons", c);
+    const i = db.coupons.findIndex((x) => x.code === c.code);
+    if (i >= 0) db.coupons[i] = c; else db.coupons.push(c);
+    emit();
+  },
+  async deleteCoupon(code: string) {
+    try { await api.delete(`/api/admin/coupons/${code}`); } catch {}
+    db.coupons = db.coupons.filter((c) => c.code !== code);
+    emit();
+  },
+  async saveReview(r: any) {
+    const res = await api.post<{ review: any }>("/api/admin/reviews", r);
+    if (!r.id) r.id = res.review.id;
+    upsert(db.reviews as any, r);
+    emit();
+  },
+  async deleteReview(id: number | string) {
+    try { await api.delete(`/api/admin/reviews/${id}`); } catch {}
+    db.reviews = db.reviews.filter((r) => r.id !== id);
+    emit();
+  },
+  async saveBlog(p: any) {
+    const payload: any = { title: p.title, slug: p.slug, excerpt: p.excerpt, content: p.content, cover: p.cover, author: p.author };
+    if (p.id) payload.id = p.id;
+    const res = await api.post<{ post: any }>("/api/admin/blog", payload);
+    if (!p.id) p.id = res.post.id;
+    upsert(db.blog as any, p);
+    emit();
+  },
+  async deleteBlog(id: number | string) {
+    try { await api.delete(`/api/admin/blog/${id}`); } catch {}
+    db.blog = db.blog.filter((b) => b.id !== id);
+    emit();
+  },
+  async saveTestimonial(t: any) {
+    const payload: any = { name: t.name, role: t.role, text: t.text, avatar: t.avatar, rating: t.rating };
+    if (t.id) payload.id = t.id;
+    const res = await api.post<{ testimonial: any }>("/api/admin/testimonials", payload);
+    if (!t.id) t.id = res.testimonial.id;
+    upsert(db.testimonials as any, t);
+    emit();
+  },
+  async deleteTestimonial(id: number | string) {
+    try { await api.delete(`/api/admin/testimonials/${id}`); } catch {}
+    db.testimonials = db.testimonials.filter((x) => x.id !== id);
+    emit();
+  },
+  async saveFaq(f: any) {
+    const payload: any = { question: f.question, answer: f.answer };
+    if (f.id) payload.id = f.id;
+    const res = await api.post<{ faq: any }>("/api/admin/faqs", payload);
+    if (!f.id) f.id = res.faq.id;
+    upsert(db.faqs as any, f);
+    emit();
+  },
+  async deleteFaq(id: number | string) {
+    try { await api.delete(`/api/admin/faqs/${id}`); } catch {}
+    db.faqs = db.faqs.filter((x) => x.id !== id);
+    emit();
+  },
+  async savePages(pages: Pages) {
+    const arr = Object.entries(pages).map(([key, content]) => ({ key, content }));
+    await api.post("/api/admin/pages", { pages: arr });
+    db.pages = pages;
+    emit();
+  },
+  async saveUser(u: any) {
+    const payload: any = { name: u.name, email: u.email, role: u.role, status: u.status, verified: u.verified, billing: u.billing };
+    if (u.id) payload.id = u.id;
+    if (u.password) payload.password = u.password;
+    const res = await api.post<{ user: any }>("/api/admin/users", payload);
+    if (!u.id) u.id = res.user.id;
+    upsert(db.users as any, u);
+    emit();
+  },
+  async deleteUser(id: number | string) {
+    try { await api.delete(`/api/admin/users/${id}`); } catch {}
+    db.users = db.users.filter((u) => u.id !== id);
+    emit();
+  },
+  async setUserStatus(id: number | string, s: UserStatus) {
+    try { await api.put(`/api/admin/users/${id}/status`, { status: s }); } catch {}
+    const u = db.users.find((x) => x.id === id);
+    if (u) { u.status = s; emit(); }
+  },
+  async saveSettings(s: Settings) {
+    await api.post("/api/admin/settings", s);
+    db.settings = s;
+    emit();
+  },
+  async markMessageRead(id: number | string, read = true) {
+    try { await api.put(`/api/admin/messages/${id}/read`, { read }); } catch {}
+    const m = db.contactMessages.find((x: any) => x.id === id);
+    if (m) { m.read = read; emit(); }
+  },
+  async deleteMessage(id: number | string) {
+    try { await api.delete(`/api/admin/messages/${id}`); } catch {}
+    db.contactMessages = db.contactMessages.filter((m: any) => m.id !== id);
+    emit();
+  },
 };
 
-export function submitContactMessage(name: string, email: string, message: string) {
+export async function submitContactMessage(name: string, email: string, message: string) {
+  const res = await api.post<{ message: ContactMessage }>("/api/contact", { name, email, message });
+  const m = res.message;
   if (!db.contactMessages) db.contactMessages = [];
-  const m: ContactMessage = { id: "m-" + uid(), name, email, message, read: false, createdAt: Date.now() };
-  db.contactMessages.unshift(m); emit(); return m;
+  db.contactMessages.unshift(m);
+  emit();
+  return m;
 }
 
-export function addReview(productId: string, rating: number, text: string) {
+export async function addReview(productId: number | string, rating: number, text: string) {
   const u = auth.current(); if (!u) throw new Error("Login to review");
-  const r: Review = { id: "r-" + uid(), productId, userId: u.id, userName: u.name, rating, text, approved: false, createdAt: Date.now() };
-  db.reviews.push(r); emit();
+  const r: Review = { id: Date.now(), productId, userId: u.id, userName: u.name, rating, text, approved: false, createdAt: Date.now() };
+  db.reviews.push(r);
+  emit();
 }
 
 export function resetStore() { db = seed(); emit(); }
 
-// ---------- Cart Drawer (UI state) ----------
+// ---------- Cart Drawer UI ----------
 let drawerOpen = false;
 const drawerListeners = new Set<() => void>();
 export const cartDrawer = {
