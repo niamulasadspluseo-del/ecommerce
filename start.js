@@ -31,7 +31,9 @@ console.log("[start] Initializing Laravel...");
 if (!existsSync("backend/database/database.sqlite")) {
   execSync("touch backend/database/database.sqlite", { stdio: "inherit" });
 }
-execSync("php artisan key:generate --force", { cwd: "backend", stdio: "inherit" });
+if (!process.env.APP_KEY) {
+  execSync("php artisan key:generate --force", { cwd: "backend", stdio: "inherit" });
+}
 execSync("php artisan migrate --force --seed", { cwd: "backend", stdio: "inherit" });
 console.log("[start] Laravel ready");
 
