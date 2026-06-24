@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y curl ca-certificates gnupg \
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Install PHP extensions needed by Laravel
-RUN docker-php-ext-install pdo_sqlite
+# Install PHP extensions needed by Laravel (pdo_sqlite is usually built-in, install if missing)
+RUN php -m | grep -q pdo_sqlite \
+    || (apt-get update && apt-get install -y libsqlite3-dev \
+        && docker-php-ext-install pdo_sqlite \
+        && rm -rf /var/lib/apt/lists/*)
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
