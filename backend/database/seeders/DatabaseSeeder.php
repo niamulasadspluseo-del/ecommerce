@@ -19,6 +19,11 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        // Skip if already seeded (PostgreSQL persistent data)
+        if (User::where('email', 'admin@demo.com')->exists()) {
+            return;
+        }
+
         // Users
         User::create([
             'id' => 1,
