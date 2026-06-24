@@ -28,12 +28,15 @@ const MIME = {
 
 // ---------- Laravel setup ----------
 console.log("[start] Initializing Laravel...");
-if (!existsSync("backend/database/database.sqlite")) {
-  execSync("touch backend/database/database.sqlite", { stdio: "inherit" });
+if (!process.env.DB_CONNECTION || process.env.DB_CONNECTION === "sqlite") {
+  if (!existsSync("backend/database/database.sqlite")) {
+    execSync("touch backend/database/database.sqlite", { stdio: "inherit" });
+  }
 }
 if (!process.env.APP_KEY) {
   execSync("php artisan key:generate --force", { cwd: "backend", stdio: "inherit" });
 }
+// Ensure DB and run migrations
 execSync("php artisan migrate --force --seed", { cwd: "backend", stdio: "inherit" });
 console.log("[start] Laravel ready");
 
