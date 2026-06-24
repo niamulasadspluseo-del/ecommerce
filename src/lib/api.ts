@@ -1,4 +1,6 @@
-const API_BASE = (import.meta as any).env?.VITE_API_URL || "";
+let raw = (import.meta as any).env?.VITE_API_URL || "";
+if (raw && !raw.startsWith("http://") && !raw.startsWith("https://")) raw = "https://" + raw;
+const API_BASE = raw;
 
 let token: string | null = null;
 
